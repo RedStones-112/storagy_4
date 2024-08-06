@@ -21,7 +21,7 @@ find_package(urdf REQUIRED)
 ################################################################################
 # Install
 ################################################################################
-install(DIRECTORY behavior_trees config launch map meshes param path rviz urdf worlds static2 pathdata sounds
+install(DIRECTORY behavior_trees config launch map meshes param path rviz urdf worlds pathdata 
   DESTINATION share/${PROJECT_NAME}
 )
 
