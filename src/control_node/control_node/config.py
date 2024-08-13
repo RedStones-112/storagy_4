@@ -8,9 +8,8 @@ stack_msgs_num = 1
 
 
 icecream_robot_name = "aris"
-table_1 = "table_1"
-table_2 = "table_2"
-table_3 = "table_3"
+before_icecream_robot = "before_aris"
+tables  = ["table_1", "table_2", "table_3"]
 base = "base"
 
 str_x = "x"
@@ -18,21 +17,24 @@ str_y = "y"
 str_z = "z"
 
 
-goal_dict = {table_1                : {"x" : -1.9, "y" : 0.13, "z" : 0.0},
-             table_2                : {"x" : -1.3, "y" : 0.13, "z" : 0.0},
-             table_3                : {"x" : -1.9, "y" : -0.3, "z" : 0.0},
-             icecream_robot_name    : {"x" : 0.65, "y" : 0.5, "z" : 0.0},
-             base                   : {"x" : 2.0, "y" : 0.1, "z" : 0.0}
+goal_dict = {tables[0]              : {"x" : 1.6,   "y" : 3.25, "z" : 0.0},
+             tables[1]              : {"x" : 1.6,   "y" : 2.5,  "z" : 0.0},
+             tables[2]              : {"x" : 1.1,   "y" : 3.25, "z" : 0.0},
+             icecream_robot_name    : {"x" : 1.6,   "y" : 0.2,  "z" : 0.0},
+             before_icecream_robot  : {"x" : 0.18,  "y" : 0.2,  "z" : 0.0},
+             base                   : {"x" : 0.0,   "y" : 0.0,  "z" : 0.0}
+
 }
 
 
 
 robot_state_wait_task   = "wait_task"
-robot_state_wait_icecream_robot   = "wait_aris"
-robot_state_goto_icecream_robot   = "goto_aris"
-robot_state_goto_table_1  = f"goto_{table_1}"
-robot_state_goto_table_2  = f"goto_{table_2}"
-robot_state_goto_table_3  = f"goto_{table_3}"
+robot_state_wait_icecream_robot   = f"wait_{icecream_robot_name}"
+robot_state_goto_icecream_robot   = f"goto_{icecream_robot_name}"
+robot_state_goto_tables = []
+for i in tables:
+    robot_state_goto_tables.append(f"goto_{i}")
+
 robot_state_wait_client = "wait_client"
 robot_state_patrol      = "patrol"
 robot_state_wait_task   = "wait_task"
