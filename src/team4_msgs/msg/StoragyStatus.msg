@@ -1,0 +1,2 @@
+string storagy_status
+int32 seat_number

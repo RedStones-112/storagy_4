@@ -26,7 +26,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'robot_planner = control_node.robot_planner:main'
+            'robot_planner = control_node.robot_planner:main',
+            'aruco_follower = control_node.aruco_follower:main'
         ],
     },
 )
