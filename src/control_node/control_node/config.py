@@ -9,17 +9,79 @@ class ControlNodeConfig:
     tables  = ["table_1", "table_2", "table_3"]
     base = "base"
 
+    # 새로운 AMCL 파라미터
+    AMCL_PARAMS = {
+        '/amcl.alpha1': 0.001,
+        '/amcl.alpha2': 0.01,
+        '/amcl.alpha3': 0.01,
+        '/amcl.alpha4': 0.01,
+        '/amcl.alpha5': 0.02,
+        '/amcl.base_frame_id': 'base_footprint',
+        '/amcl.beam_skip_distance': 0.5,
+        '/amcl.beam_skip_error_threshold': 0.9,
+        '/amcl.beam_skip_threshold': 0.3,
+        '/amcl.do_beamskip': False,
+        '/amcl.global_frame_id': 'map',
+        '/amcl.lambda_short': 0.1,
+        '/amcl.laser_likelihood_max_dist': 3.0,
+        '/amcl.laser_max_range': 100.0,
+        '/amcl.laser_min_range': -1.0,
+        '/amcl.laser_model_type': 'likelihood_field',
+        '/amcl.max_beams': 60,
+        '/amcl.max_particles': 2000,
+        '/amcl.min_particles': 500,
+        '/amcl.odom_frame_id': 'odom',
+        '/amcl.pf_err': 0.05,
+        '/amcl.pf_z': 0.99,
+        '/amcl.recovery_alpha_fast': 0.0,
+        '/amcl.recovery_alpha_slow': 0.0,
+        '/amcl.resample_interval': 1,
+        '/amcl.robot_model_type': 'nav2_amcl::DifferentialMotionModel',
+        '/amcl.save_pose_rate': 0.5,
+        '/amcl.scan_topic': 'scan',
+        '/amcl.set_initial_pose': True,
+        '/amcl.sigma_hit': 0.1,
+        '/amcl.tf_broadcast': True,
+        '/amcl.transform_tolerance': 1.0,
+        '/amcl.update_min_a': 0.1,
+        '/amcl.update_min_d': 0.1,
+        '/amcl.use_sim_time': False,
+        '/amcl.z_hit': 0.9,
+        '/amcl.z_rand': 0.5,
+        '/amcl.z_short': 0.05,
+    }
+
+    AMCL_ESTIMATION_PARAMS = {
+    'alpha1': 0.1,
+    'alpha2': 0.1,
+    'alpha3': 0.1,
+    'alpha4': 0.1,
+    'do_beamskip': True,
+    'max_particles': 3000,
+    'min_particles': 1000
+    }
+
+    AMCL_DEFAULT_PARAMS = {
+        'alpha1': 0.001,
+        'alpha2': 0.01,
+        'alpha3': 0.01,
+        'alpha4': 0.01,
+        'do_beamskip': False,
+        'max_particles': 2000,
+        'min_particles': 500
+        }
+    
     str_x = "x"
     str_y = "y"
     str_z = "z"
     map_name = "map"
 
     goal_dict = {tables[0]             : {"x" : 0.24,   "y" : 3.06, "z" : 0.0},
-                tables[1]              : {"x" : 0.40,   "y" : 1.97,  "z" : 0.0},
-                tables[2]              : {"x" : -0.20,   "y" : 3.08, "z" : 0.0},
-                icecream_robot_name    : {"x" : -0.024,   "y" : 0.06, "z" : 0.0},
-                before_icecream_robot  : {"x" : 0.18,  "y" : 0.2,  "z" : 0.0},
-                base                   : {"x" : -1.154768375146601,   "y" : 3.0310363309456543,  "z" : 0.0}
+                tables[1]              : {"x" : 0.40,   "y" : 1.97, "z" : 0.0},
+                tables[2]              : {"x" : -0.20,  "y" : 3.08, "z" : 0.0},
+                icecream_robot_name    : {"x" : -0.024, "y" : 0.06, "z" : 0.0},
+                before_icecream_robot  : {"x" : -0.13,  "y" : 0.50, "z" : 0.0},
+                base                   : {"x" : -1.15,  "y" : 3.03, "z" : 0.0}
 
     }
 
@@ -37,3 +99,9 @@ class ControlNodeConfig:
     wait_error = 1
     euler_default_val = 0
     location_icecream_robot = [1.125, -0.30]
+
+    call_aris_service_name = "/go_to_icecream"
+    PutOnIcecream_name = "set_seat_number"
+    StoragyStatus_name = "/storagy_state"
+
+

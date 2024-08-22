@@ -1,20 +1,29 @@
 amcl:
   ros__parameters:
-    # alpha1: 0.001
-    # alpha2: 0.01
-    # alpha3: 0.01
-    # alpha4: 0.01
-    alpha1: 0.1  # 조향 불확실성 증가
-    alpha2: 0.1  # 이동 불확실성 증가
-    alpha3: 0.1  # 회전 시 이동 불확실성 증가
-    alpha4: 0.1  # 회전 시 회전 불확실성 증가
+    # 기존 스토리지 코드
+    alpha1: 0.001
+    alpha2: 0.01
+    alpha3: 0.01
+    alpha4: 0.01
+
+    # 변경된 스토리지 코드
+    # alpha1: 0.1  # 조향 불확실성 증가
+    # alpha2: 0.1  # 이동 불확실성 증가
+    # alpha3: 0.1  # 회전 시 이동 불확실성 증가
+    # alpha4: 0.1  # 회전 시 회전 불확실성 증가
+
     alpha5: 0.02
     base_frame_id: base_footprint
     beam_skip_distance: 0.5
     beam_skip_error_threshold: 0.9
     beam_skip_threshold: 0.3
-    do_beamskip: true  # 빔 스킵 기능 활성화
-    # do_beamskip: false
+
+    # 변경된 스토리지 코드
+    # do_beamskip: true  # 빔 스킵 기능 활성화
+
+    # 기존 스토리지 코드
+    do_beamskip: false
+
     global_frame_id: map
     lambda_short: 0.1
     laser_likelihood_max_dist: 3.0
@@ -22,10 +31,15 @@ amcl:
     laser_min_range: -1.0
     laser_model_type: likelihood_field
     max_beams: 60
-    # max_particles: 2000
-    # min_particles: 500
-    max_particles: 3000  # 최대 파티클 수 증가
-    min_particles: 1000  # 최소 파티클 수 증가
+
+    # 기존 스토리지 코드
+    max_particles: 2000
+    min_particles: 500
+
+    # 변경된 스토리지 코드
+    # max_particles: 3000  # 최대 파티클 수 증가
+    # min_particles: 1000  # 최소 파티클 수 증가
+
     odom_frame_id: odom
     pf_err: 0.05
     pf_z: 0.99

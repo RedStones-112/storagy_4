@@ -1,9 +1,11 @@
 import rclpy as rp
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 import numpy as np
 import inspect
 from control_node.config import ControlNodeConfig as config
 import time
+import math
 
 from nav2_simple_commander.robot_navigator import BasicNavigator
 from nav2_simple_commander.robot_navigator import TaskResult
@@ -12,11 +14,11 @@ from nav2_msgs.action import FollowPath, FollowWaypoints, NavigateThroughPoses, 
 from std_srvs.srv import Empty
 # from aris_package.srv import SetSeatNumber
 from team4_msgs.srv import PutOnIcecream
+from team4_msgs.msg import StoragyStatus
+
 from threading import Thread
 from rclpy.action import ActionClient
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
-
-import math
 
 
 class RobotPlanner(Node):
@@ -27,115 +29,68 @@ class RobotPlanner(Node):
     def __init__(self):
         super().__init__("robot_planner")
         self.nav = BasicNavigator()
-
-        # self.amcl_pose를 먼저 초기화
-        self.amcl_pose = PoseWithCovarianceStamped()
-
         self.create_handles()
-        
         self.init_pose_estimation()  
         self.reset_values()
 
         
     def create_handles(self): # sub, pub, client, server 선언 함수
+        self.amcl_pose = PoseWithCovarianceStamped()
         # amcl_pose sub
-        self.pose_sub = self.create_subscription(PoseWithCovarianceStamped, config.amcl_topic_name, self.pose_callback, config.stack_msgs_num)
+        self.pose_sub = self.create_subscription(
+            PoseWithCovarianceStamped, config.amcl_topic_name, self.pose_callback, config.stack_msgs_num
+        )
         # nav_to_pose action_client 
         self.nav_to_pose_client = ActionClient(self, NavigateToPose, config.pose_topic_name)
         # 아리스에게 이동하는 서비스
-        self.goto_icecream_service = self.create_service(Empty, "/go_to_icecream", self.service_icecream)
+        self.goto_icecream_service = self.create_service(
+            Empty, config.call_aris_service_name, self.service_icecream
+        )
         # 아리스에게 아이스크림을 모두 받았음을 전달받는 서비스
-        self.complite_puton = self.create_service(PutOnIcecream, "set_seat_number", self.service_complite_puton)
-
+        self.complite_puton = self.create_service(
+            PutOnIcecream, config.PutOnIcecream_name, self.service_complite_puton
+        )
+        # 스토리지의 상태를 뿌리는 펍
+        self.state_pub = self.create_publisher(
+            StoragyStatus, config.StoragyStatus_name, config.stack_msgs_num
+        )
         # cmd_vel publisher for rotating the robot 
         # 처음 시작했을때 360도 회전해서 자기 위치 추정
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-
         # 초기 위치 퍼블리시를 위한 publisher
         self.pose_pub = self.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
+        
+        self.create_timer(0.5, self.pub_state)
+
+    def pub_state(self): # 상태 퍼블리쉬 하는 함수
+        msg = StoragyStatus()
+        msg.storagy_status = self.storagy_state
+        self.state_pub.publish(msg=msg)
     
     def init_pose_estimation(self):
         """로봇이 주위 환경을 스캔하며 위치를 초기화하는 함수"""
         try:
-            # 초기 위치를 임의로 설정
             self.get_logger().info("Setting initial pose...")
-            initial_pose = PoseWithCovarianceStamped()
-            initial_pose.header.stamp = self.get_clock().now().to_msg()
-            initial_pose.header.frame_id = "map"
-
-            # 초기 위치를 설정 (필요에 따라 값을 조정)
-            # 맵 중앙으로 로봇 초기 위치 다시 설정
-            initial_pose.pose.pose.position.x = -0.52
-            initial_pose.pose.pose.position.y = 1.35
-            initial_pose.pose.pose.orientation.z = 0.0
-            initial_pose.pose.pose.orientation.w = 1.0  # w를 1.0으로 설정하여 초기 방향을 정렬
-
-            # 초기 위치의 공분산 설정 (36개의 float 값)
-            initial_pose.pose.covariance = [
-                0.25, 0.0, 0.0, 0.0, 0.0, 0.0,
-                0.0, 0.25, 0.0, 0.0, 0.0, 0.0,
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                0.0, 0.0, 0.0, 0.0, 0.25, 0.0,
-                0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-            ]
-
+            initial_pose = self.create_initial_pose()
             # 초기 위치를 퍼블리시
             self.pose_pub.publish(initial_pose)
             self.get_logger().info("Initial pose set and published.")
-            time.sleep(2.0)  # 퍼블리시 후 잠시 대기
+            time.sleep(2.0)
+
+            # 초기 위치 추정하기 위한 AMCL 파라미터 변경
+            self.declare_amcl_parameters()
+            self.update_amcl_parameters_for_estimation()
 
             # AMCL 전역 초기화 (지도 전체에서 위치를 추정하도록 파티클 초기화)
-            self.get_logger().info("Initializing global localization for AMCL...")
-            self.global_localization_service = self.create_client(Empty, '/reinitialize_global_localization')
-            
-            while not self.global_localization_service.wait_for_service(timeout_sec=1.0):
-                self.get_logger().info("Waiting for /reinitialize_global_localization service...")
-            
-            global_localization_request = Empty.Request()
-            self.global_localization_service.call_async(global_localization_request)
-            self.get_logger().info("Global localization initialized.")
-
-            # 회전을 위한 Twist 메시지 생성
-            twist_msg = Twist()
-            twist_msg.angular.z = 0.25  # 회전 속도 설정
-
-            # 목표 회전 각도 = 2π rad
-            target_rotation = 2 * math.pi  # 360도
-
-            # 한 번의 루프에서 회전하는 각도
-            rotation_per_loop = twist_msg.angular.z * 0.3  # 0.25 rad/s * 0.3 s
-
-            # 필요한 루프 횟수 계산
-            num_loops = int(target_rotation / rotation_per_loop)
-
+            self.global_localization_init()
             # 360도 회전을 수행하면서 위치 추정
-            for _ in range(num_loops):
-                self.cmd_vel_pub.publish(twist_msg)
-                time.sleep(0.3)  # 0.3초마다 메시지 전송 (속도 조정)
-
-            # 회전 종료
-            twist_msg.angular.z = 0.0
-            self.cmd_vel_pub.publish(twist_msg)
-            self.get_logger().info("Initial pose estimation done by rotating.")
+            self.perform_rotation()
 
             # AMCL에서 최종적으로 추정한 위치를 가져와 초기 위치로 설정
             if hasattr(self, 'amcl_pose'):
-                final_pose = PoseWithCovarianceStamped()
-                final_pose.header.stamp = self.get_clock().now().to_msg()
-                final_pose.header.frame_id = "map"
-
-                # AMCL이 추정한 최종 위치 및 자세를 설정
-                final_pose.pose.pose.position.x = self.amcl_pose.pose.pose.position.x
-                final_pose.pose.pose.position.y = self.amcl_pose.pose.pose.position.y
-                final_pose.pose.pose.orientation = self.amcl_pose.pose.pose.orientation
-
-                # 위치의 공분산 설정
-                final_pose.pose.covariance = self.amcl_pose.pose.covariance
-                self.get_logger().info("Final pose estimated by AMCL and published.")
-
-                # 최종 추정된 위치를 로봇의 현재 위치로 업데이트
+                final_pose = self.create_final_pose()
                 self.amcl_pose = final_pose
+                self.get_logger().info("Final pose estimated by AMCL and published.")
 
             self.get_logger().info("AMCL localization and pose estimation completed.")
 
@@ -147,14 +102,132 @@ class RobotPlanner(Node):
         
         finally:
             # 회전 중지 명령을 보내는 코드가 예외 발생 시에도 실행되도록 보장
+            twist_msg = Twist()
             twist_msg.angular.z = 0.0
             self.cmd_vel_pub.publish(twist_msg)
             self.get_logger().info("Pose estimation process has been safely terminated.")
 
+    def declare_amcl_parameters(self):
+        """AMCL 파라미터를 선언하는 함수"""
+        self.declare_parameters(
+            namespace='',
+            parameters=[(key, value) for key, value in config.AMCL_PARAMS.items()]
+        )
+
+    def update_amcl_parameters_for_estimation(self):
+        """위치 추정을 위해 AMCL 파라미터를 변경"""
+        new_parameters = [
+            Parameter('/amcl.alpha1', Parameter.Type.DOUBLE, config.AMCL_ESTIMATION_PARAMS['alpha1']),
+            Parameter('/amcl.alpha2', Parameter.Type.DOUBLE, config.AMCL_ESTIMATION_PARAMS['alpha2']),
+            Parameter('/amcl.alpha3', Parameter.Type.DOUBLE, config.AMCL_ESTIMATION_PARAMS['alpha3']),
+            Parameter('/amcl.alpha4', Parameter.Type.DOUBLE, config.AMCL_ESTIMATION_PARAMS['alpha4']),
+            Parameter('/amcl.do_beamskip', Parameter.Type.BOOL, config.AMCL_ESTIMATION_PARAMS['do_beamskip']),
+            Parameter('/amcl.max_particles', Parameter.Type.INTEGER, config.AMCL_ESTIMATION_PARAMS['max_particles']),
+            Parameter('/amcl.min_particles', Parameter.Type.INTEGER, config.AMCL_ESTIMATION_PARAMS['min_particles']),
+        ]
+        
+        self.get_logger().info("Updating AMCL parameters for pose estimation...")
+        self.set_parameters(new_parameters)
+
+    def restore_default_amcl_parameters(self):
+        """위치 추정 후 AMCL 파라미터를 원래 상태로 복원"""
+        original_parameters = [
+            Parameter('/amcl.alpha1', Parameter.Type.DOUBLE, config.AMCL_DEFAULT_PARAMS['alpha1']),
+            Parameter('/amcl.alpha2', Parameter.Type.DOUBLE, config.AMCL_DEFAULT_PARAMS['alpha2']),
+            Parameter('/amcl.alpha3', Parameter.Type.DOUBLE, config.AMCL_DEFAULT_PARAMS['alpha3']),
+            Parameter('/amcl.alpha4', Parameter.Type.DOUBLE, config.AMCL_DEFAULT_PARAMS['alpha4']),
+            Parameter('/amcl.do_beamskip', Parameter.Type.BOOL, config.AMCL_DEFAULT_PARAMS['do_beamskip']),
+            Parameter('/amcl.max_particles', Parameter.Type.INTEGER, config.AMCL_DEFAULT_PARAMS['max_particles']),
+            Parameter('/amcl.min_particles', Parameter.Type.INTEGER, config.AMCL_DEFAULT_PARAMS['min_particles']),
+        ]
+        
+        self.get_logger().info("Restoring AMCL parameters to defaults...")
+        try:
+            self.set_parameters(original_parameters)
+            self.get_logger().info("AMCL parameters restored successfully.")
+        except Exception as e:
+            self.get_logger().error(f"Failed to restore AMCL parameters: {str(e)}")
+
+    def create_initial_pose(self):
+        """초기 위치 설정 함수 맵의 중앙에 위치 설정"""
+        initial_pose = PoseWithCovarianceStamped()
+        initial_pose.header.stamp = self.get_clock().now().to_msg()
+        initial_pose.header.frame_id = "map"
+
+        # 초기 위치를 설정 (필요에 따라 값을 조정)
+        initial_pose.pose.pose.position.x = -0.52
+        initial_pose.pose.pose.position.y = 1.35
+        initial_pose.pose.pose.orientation.z = 0.0
+        initial_pose.pose.pose.orientation.w = 1.0
+
+        # 초기 위치의 공분산 설정 (36개의 float 값)
+        initial_pose.pose.covariance = [
+            0.25, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.25, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.25, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        ]
+        return initial_pose
+
+    def global_localization_init(self):
+        """AMCL 전역 초기화 함수"""
+        self.get_logger().info("Initializing global localization for AMCL...")
+        self.global_localization_service = self.create_client(Empty, '/reinitialize_global_localization')
+        
+        while not self.global_localization_service.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info("Waiting for /reinitialize_global_localization service...")
+        
+        global_localization_request = Empty.Request()
+        self.global_localization_service.call_async(global_localization_request)
+        self.get_logger().info("Global localization initialized.")
+
+    def perform_rotation(self):
+        """로봇의 360도 회전 수행 함수"""
+        twist_msg = Twist()
+        twist_msg.angular.z = 0.2  # 회전 속도 설정
+
+        # 목표 회전 각도 = 2π rad
+        target_rotation = 2.5 * math.pi  # 360도
+
+        # 한 번의 루프에서 회전하는 각도
+        rotation_per_loop = twist_msg.angular.z * 0.3  # 0.25 rad/s * 0.3 s
+
+        # 필요한 루프 횟수 계산
+        num_loops = int(target_rotation / rotation_per_loop)
+
+        # 360도 회전을 수행하면서 위치 추정
+        for _ in range(num_loops):
+            self.cmd_vel_pub.publish(twist_msg)
+            time.sleep(0.3)  # 0.3초마다 메시지 전송 (속도 조정)
+
+        # 회전 종료
+        twist_msg.angular.z = 0.0
+        self.cmd_vel_pub.publish(twist_msg)
+        self.get_logger().info("Initial pose estimation done by rotating.")
+
+    def create_final_pose(self):
+        """AMCL로부터 최종 위치를 가져와 초기 위치로 설정하는 함수"""
+        final_pose = PoseWithCovarianceStamped()
+        final_pose.header.stamp = self.get_clock().now().to_msg()
+        final_pose.header.frame_id = "map"
+
+        # AMCL이 추정한 최종 위치 및 자세를 설정
+        final_pose.pose.pose.position.x = self.amcl_pose.pose.pose.position.x
+        final_pose.pose.pose.position.y = self.amcl_pose.pose.pose.position.y
+        final_pose.pose.pose.orientation = self.amcl_pose.pose.pose.orientation
+
+        # 위치의 공분산 설정
+        final_pose.pose.covariance = self.amcl_pose.pose.covariance
+        return final_pose
 
     def reset_values(self):  # 수치값들 초기화 해주는 함수
         self.task_list = []
         self.goal_distance = 0
+
+        # 다시 초기 위치 추정하기 위해서 필요했던 AMCL 파라미터 값 기존으로 복원    
+        self.restore_default_amcl_parameters()
 
         # 현재 amcl_pose 값을 안전하게 복사하여 인스턴스 변수로 저장
         self.current_amcl_pose = PoseWithCovarianceStamped()
@@ -163,8 +236,6 @@ class RobotPlanner(Node):
         self.storagy_state = config.robot_state_wait_task
         # self.location_name = config.base
         self.location_name = "initial_position"
-
-
         
     def start_run_thread(self): # run 함수 thread 시작하는 함수
         try:
@@ -173,7 +244,6 @@ class RobotPlanner(Node):
             self.run_thread.start()
         except:
             print("control_node can't activate run_thread")
-
 
     def nav2_send_goal(self, x, y, z=0.0, yaw=0.0) -> bool:  # 해당 위치로 goal을 보내주는 함수 
         try:
@@ -294,74 +364,6 @@ class RobotPlanner(Node):
         yaw = math.atan2(siny_cosp, cosy_cosp)
         return yaw
 
-    #아리스 받는 위치
-    def adjust_ice_cream_pose(self):
-        # 설정된 목표 위치 및 자세
-        target_pose = {
-            "x": 0.01,
-            "y": 0.05,
-            "z": 0.0,
-            "orientation": {
-                "x": 0.0,
-                "y": 0.0,
-                "z": 0.0,
-                "w": 1.0
-            }
-        }
-
-        # 오차 허용 범위
-        position_tolerance = 0.01  # 1cm
-        orientation_tolerance = 0.01  # 약 0.01 라디안 (0.57도)
-
-        while True:
-            # 현재 AMCL에서 받은 위치 및 자세
-            current_pose = {
-                "x": self.amcl_pose.pose.pose.position.x,
-                "y": self.amcl_pose.pose.pose.position.y,
-                "z": self.amcl_pose.pose.pose.position.z,
-                "orientation": {
-                    "x": self.amcl_pose.pose.pose.orientation.x,
-                    "y": self.amcl_pose.pose.pose.orientation.y,
-                    "z": self.amcl_pose.pose.pose.orientation.z,
-                    "w": self.amcl_pose.pose.pose.orientation.w
-                }
-            }
-
-            # 현재 위치와 목표 위치 간의 오차 계산
-            position_error = math.sqrt(
-                (target_pose["x"] - current_pose["x"])**2 +
-                (target_pose["y"] - current_pose["y"])**2 +
-                (target_pose["z"] - current_pose["z"])**2
-            )
-
-            # 현재 자세와 목표 자세 간의 오차 계산 (쿼터니언을 이용한 yaw 차이)
-            target_yaw = self.quaternion_to_yaw(target_pose["orientation"]["x"],
-                                                target_pose["orientation"]["y"],
-                                                target_pose["orientation"]["z"],
-                                                target_pose["orientation"]["w"])
-
-            current_yaw = self.quaternion_to_yaw(current_pose["orientation"]["x"],
-                                                current_pose["orientation"]["y"],
-                                                current_pose["orientation"]["z"],
-                                                current_pose["orientation"]["w"])
-
-            orientation_error = abs(target_yaw - current_yaw)
-
-            # 위치와 자세가 모두 허용 오차 이내이면 루프 종료
-            if position_error < position_tolerance and orientation_error < orientation_tolerance:
-                self.get_logger().info("Fine adjustment completed: Position and orientation are within tolerance.")
-                break
-
-            # 목표 위치와 yaw로 미세 조정
-            self.get_logger().info("Adjusting position and orientation to AMCL pose")
-            self.nav2_send_goal(target_pose["x"], target_pose["y"], target_pose["z"], target_yaw)
-            
-            # 조정을 반복하기 전에 잠시 대기
-            time.sleep(1.0)
-
-        self.get_logger().info("Fine adjustment done to AMCL pose")
-
-
 
     def run(self):  # 테스크 리스트를 확인하며 테스크를 수행하는 함수
         start_time = time.time()
@@ -395,9 +397,11 @@ class RobotPlanner(Node):
                     self.nav2_send_goal(config.goal_dict[config.icecream_robot_name][config.str_x],
                                         config.goal_dict[config.icecream_robot_name][config.str_y])
                     self.location_name = config.icecream_robot_name
+                    self.storagy_state = config.robot_state_wait_icecream_robot
                                         
                     # aris service call 들어갈 위치
                     start_time = time.time()
+
                 elif self.task_list[0] == config.base:
                     print("go to base")
                     self.set_state()
@@ -406,9 +410,11 @@ class RobotPlanner(Node):
                     self.location_name = config.base
                     self.storagy_state = config.robot_state_wait_task
                     start_time = time.time()
+
                 elif self.task_list[0] in config.robot_state_goto_tables:
                     self.check_able_table_name()
                     start_time = time.time()
+
                 else:
                     print(f"정의되지 않은 작업 : {self.task_list[0]}")
 
@@ -420,11 +426,9 @@ class RobotPlanner(Node):
 def main(args=None):
     rp.init(args=args)
     planner = RobotPlanner()
+    planner.start_run_thread()
 
     try:
-        # 초기화가 완료된 후에 run_thread를 시작
-        planner.start_run_thread()
-
         # ROS2 노드 스핀 (이벤트 루프 실행)
         rp.spin(planner)
 
