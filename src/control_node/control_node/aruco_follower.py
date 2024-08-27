@@ -12,9 +12,6 @@ class ArucoMarkerFollower(Node):
     def __init__(self):
         super().__init__('aruco_marker_follower')
 
-        # 목표 위치에 도달했는지 여부를 추적하는 변수 및 카운터 초기화
-        self.target_reached_count = 0  # 목표 도달 횟수를 추적
-
         # OpenCV 및 ArUco 관련 초기화
         self.bridge = CvBridge()
         self.aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_6X6_250)
@@ -24,10 +21,14 @@ class ArucoMarkerFollower(Node):
         self.latest_depth_image = None
 
         # ROS2 구독자 및 퍼블리셔 설정
+        self.camera_info_sub = self.create_subscription(CameraInfo, '/camera/depth/camera_info', self.camera_info_callback, 10)
         self.depth_sub = self.create_subscription(Image, '/camera/depth/image_raw', self.depth_callback, 10)
         self.rgb_sub = self.create_subscription(Image, '/camera/color/image_raw', self.rgb_callback, 10)
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.camera_info_sub = self.create_subscription(CameraInfo, '/camera/depth/camera_info', self.camera_info_callback, 10)
+
+        # 목표 위치에 도달했는지 여부를 추적하는 변수 및 카운터 초기화
+        self.max_position_reached_count = 0  # X, Z 목표 도달 최대 횟수
+        self.max_angle_reached_count = 0     # Angle 목표 도달 최대 횟수
 
         # 카메라 내부 파라미터 초기화
         self.intrinsic_matrix = None
@@ -91,37 +92,62 @@ class ArucoMarkerFollower(Node):
                 self.handle_marker_by_id(marker_id, x, y, z)
 
 
-    def handle_marker_by_id(self, marker_id, x, y, z):
-        """마커 ID에 따라 로봇의 위치를 조정하는 함수"""
+    def handle_marker_by_id(self, marker_id, x, y, z, angle):
+        """마커 ID에 따라 로봇의 위치 및 회전을 조정하는 함수"""
         cmd = Twist()
 
         # 각 marker_id에 대한 목표 X, Z 위치 및 허용 오차 설정
         target_positions = {
-            1: {'x': -34.00, 'z': 728.00},
+            1: {'x': -34.00, 'z': 728.00, 'angle': 0.0},  # 예시로 각도를 추가
             # 추가적인 marker_id의 목표를 여기에 추가
         }
-        tolerance = 2.0  # 2mm 오차 범위
 
-        # 목표 위치 가져오기 (없는 경우 기본값 None)
+        # 2mm 오차 범위 및 각도 허용 오차 (예: 3도)
+        tolerance = 2.0
+        angle_tolerance = math.radians(3.0)
+
+        # 목표 위치 및 각도 가져오기
         target_x = target_positions.get(marker_id, {}).get('x')
         target_z = target_positions.get(marker_id, {}).get('z')
+        target_angle = target_positions.get(marker_id, {}).get('angle')
 
-        if target_x is not None and target_z is not None:
+        # 목표 도달 횟수 설정
+        max_position_reached_count = 5  # X, Z 목표 도달 최대 횟수
+        max_angle_reached_count = 3     # Angle 목표 도달 최대 횟수
+
+        if target_x is not None and target_z is not None and target_angle is not None:
             # X, Z 위치가 목표 위치에 도달했는지 확인
             if abs(x - target_x) <= tolerance and abs(z - target_z) <= tolerance:
-                # 목표 위치에 도달하면 로봇의 움직임 중지 및 상태 갱신
-                self.get_logger().info(f"Marker ID {marker_id}: Target position reached: X={x:.2f}, Z={z:.2f}")
-                cmd.linear.x = 0.0
-                cmd.angular.z = 0.0
+                # X, Z 목표 위치에 도달한 경우
+                self.position_reached_count += 1  # 위치 도달 횟수 증가
 
-                self.target_reached_count += 1  # 목표 도달 횟수 증가
+                # X, Z 목표 위치에 도달한 횟수가 설정된 최대 횟수를 초과한 경우
+                if self.position_reached_count >= max_position_reached_count:
+                    # 목표 위치에 도달한 후 각도 제어 수행
+                    if abs(angle - target_angle) > angle_tolerance:
+                        # 목표 각도에 도달하지 않은 경우 각도 조정
+                        self.get_logger().info(f"Marker ID {marker_id}: Target position reached, adjusting angle: X={x:.2f}, Z={z:.2f}, Angle={math.degrees(angle):.2f}")
+                        if angle < target_angle:
+                            cmd.angular.z = 0.02  # 시계 방향 회전
+                        else:
+                            cmd.angular.z = -0.02  # 반시계 방향 회전
 
-                # 목표에 10번 이상 도달하면 프로그램 종료
-                if self.target_reached_count >= 10:
-                    self.get_logger().info("Target reached 10 times. Shutting down.")
-                    cv2.destroyAllWindows()
-                    rclpy.shutdown()
-                    return
+                        cmd.linear.x = 0.0  # 위치 조정은 멈추고 각도만 조정
+
+                    else:
+                        # 목표 각도에 도달한 경우
+                        self.angle_reached_count += 1  # 각도 도달 횟수 증가
+                        self.get_logger().info(f"Marker ID {marker_id}: Target position and angle reached: X={x:.2f}, Z={z:.2f}, Angle={math.degrees(angle):.2f}")
+                        cmd.linear.x = 0.0
+                        cmd.angular.z = 0.0
+
+                        # 목표 각도 도달 횟수가 설정된 최대 횟수를 초과한 경우 프로그램 종료
+                        if self.angle_reached_count >= max_angle_reached_count:
+                            self.get_logger().info(f"Target position reached {max_position_reached_count} times and angle reached {max_angle_reached_count} times. Shutting down.")
+                            cv2.destroyAllWindows()
+                            rclpy.shutdown()
+                            return
+
             else:
                 # 목표 위치에 도달하지 않았을 때, 목표에 따라 전/후진 및 회전 제어
                 if z < target_z:
@@ -137,11 +163,12 @@ class ArucoMarkerFollower(Node):
             # 제어 명령 퍼블리시
             self.cmd_vel_pub.publish(cmd)
         else:
-            # target_x 또는 target_z 값이 None인 경우, 로봇을 중지합니다.
-            self.get_logger().warn(f"Marker ID {marker_id} has no target position set.")
+            # target_x 또는 target_z 또는 target_angle 값이 None인 경우, 로봇을 중지합니다.
+            self.get_logger().warn(f"Marker ID {marker_id} has no target position or angle set.")
             cmd.linear.x = 0.0
             cmd.angular.z = 0.0
             self.cmd_vel_pub.publish(cmd)
+            return
 
     def quaternion_to_euler(self, q):
         """쿼터니언을 오일러 각도로 변환하는 함수"""

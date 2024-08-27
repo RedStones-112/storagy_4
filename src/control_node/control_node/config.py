@@ -9,7 +9,7 @@ class ControlNodeConfig:
     tables  = ["table_1", "table_2", "table_3"]
     base = "base"
 
-    # 새로운 AMCL 파라미터
+    # 기존 AMCL 파라미터
     AMCL_PARAMS = {
         '/amcl.alpha1': 0.001,
         '/amcl.alpha2': 0.01,
@@ -76,12 +76,12 @@ class ControlNodeConfig:
     str_z = "z"
     map_name = "map"
 
-    goal_dict = {tables[0]             : {"x" : 0.24,   "y" : 3.06, "z" : 0.0},
-                tables[1]              : {"x" : 0.40,   "y" : 1.97, "z" : 0.0},
-                tables[2]              : {"x" : -0.20,  "y" : 3.08, "z" : 0.0},
-                icecream_robot_name    : {"x" : -0.024, "y" : 0.06, "z" : 0.0},
-                before_icecream_robot  : {"x" : -0.13,  "y" : 0.50, "z" : 0.0},
-                base                   : {"x" : -1.15,  "y" : 3.03, "z" : 0.0}
+    goal_dict = {tables[0]             : {"x" : 3.70,   "y" : -0.43, "z" : 0.0},
+                tables[1]              : {"x" : 2.70,   "y" : -0.43, "z" : 0.0},
+                tables[2]              : {"x" : 3.70,   "y" : -0.05, "z" : 0.0},
+                icecream_robot_name    : {"x" : 0.71,   "y" : 1.4,   "z" : 0.0},
+                before_icecream_robot  : {"x" : 0.68,   "y" : 0.00,  "z" : 0.0},
+                base                   : {"x" : 0.0,    "y" : 0.0,   "z" : 0.0}
 
     }
 
@@ -96,8 +96,13 @@ class ControlNodeConfig:
     robot_state_patrol      = "patrol"
     robot_state_wait_task   = "wait_task"
     wait_time = 5
+    patrol_time = 20
+    nav2_wait_time = 10
     wait_error = 1
     euler_default_val = 0
+    back_up_speed = -0.1
+    back_up_distance = 1.0
+    default_backup_distance = 0.2
     location_icecream_robot = [1.125, -0.30]
 
     call_aris_service_name = "/go_to_icecream"

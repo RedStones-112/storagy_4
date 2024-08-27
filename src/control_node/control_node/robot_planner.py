@@ -6,6 +6,9 @@ import inspect
 from control_node.config import ControlNodeConfig as config
 import time
 import math
+import subprocess
+import os
+# from src.navigation2.nav2_simple_commander.nav2_simple_commander.robot_navigator import BasicNavigator
 
 from nav2_simple_commander.robot_navigator import BasicNavigator
 from nav2_simple_commander.robot_navigator import TaskResult
@@ -30,8 +33,9 @@ class RobotPlanner(Node):
         super().__init__("robot_planner")
         self.nav = BasicNavigator()
         self.create_handles()
-        self.init_pose_estimation()  
+        # self.init_pose_estimation()  
         self.reset_values()
+
 
         
     def create_handles(self): # sub, pub, client, server 선언 함수
@@ -54,13 +58,10 @@ class RobotPlanner(Node):
         self.state_pub = self.create_publisher(
             StoragyStatus, config.StoragyStatus_name, config.stack_msgs_num
         )
-        # cmd_vel publisher for rotating the robot 
-        # 처음 시작했을때 360도 회전해서 자기 위치 추정
-        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        # 초기 위치 퍼블리시를 위한 publisher
-        self.pose_pub = self.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
         
-        self.create_timer(0.5, self.pub_state)
+        self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", config.stack_msgs_num)
+        
+        self.create_timer(1, self.pub_state)
 
     def pub_state(self): # 상태 퍼블리쉬 하는 함수
         msg = StoragyStatus()
@@ -127,7 +128,13 @@ class RobotPlanner(Node):
         ]
         
         self.get_logger().info("Updating AMCL parameters for pose estimation...")
-        self.set_parameters(new_parameters)
+        try:
+            self.set_parameters(new_parameters)
+            self.get_logger().info("AMCL parameters updated successfully.")
+        
+        except Exception as e:
+            self.get_logger().error(f"Failed to update AMCL parameters: {str(e)}")
+
 
     def restore_default_amcl_parameters(self):
         """위치 추정 후 AMCL 파라미터를 원래 상태로 복원"""
@@ -147,6 +154,7 @@ class RobotPlanner(Node):
             self.get_logger().info("AMCL parameters restored successfully.")
         except Exception as e:
             self.get_logger().error(f"Failed to restore AMCL parameters: {str(e)}")
+
 
     def create_initial_pose(self):
         """초기 위치 설정 함수 맵의 중앙에 위치 설정"""
@@ -225,18 +233,22 @@ class RobotPlanner(Node):
     def reset_values(self):  # 수치값들 초기화 해주는 함수
         self.task_list = []
         self.goal_distance = 0
-
+        self.backup_distance = config.default_backup_distance
+        self.distance_remaining = 0
+        self.old_distance_remaining = 0
+        self.go_to_pose_is_activate = False
         # 다시 초기 위치 추정하기 위해서 필요했던 AMCL 파라미터 값 기존으로 복원    
-        self.restore_default_amcl_parameters()
+        # self.restore_default_amcl_parameters()
 
-        # 현재 amcl_pose 값을 안전하게 복사하여 인스턴스 변수로 저장
-        self.current_amcl_pose = PoseWithCovarianceStamped()
-        self.current_amcl_pose.pose = self.amcl_pose.pose
+        # # 현재 amcl_pose 값을 안전하게 복사하여 인스턴스 변수로 저장
+        # self.current_amcl_pose = PoseWithCovarianceStamped()
+        # self.current_amcl_pose.pose = self.amcl_pose.pose
 
         self.storagy_state = config.robot_state_wait_task
-        # self.location_name = config.base
-        self.location_name = "initial_position"
+        self.location_name = config.base
+        # self.location_name = "initial_position"
         
+
     def start_run_thread(self): # run 함수 thread 시작하는 함수
         try:
             self.run_deamon = True
@@ -245,18 +257,19 @@ class RobotPlanner(Node):
         except:
             print("control_node can't activate run_thread")
 
-    def nav2_send_goal(self, x, y, z=0.0, yaw=0.0) -> bool:  # 해당 위치로 goal을 보내주는 함수 
+
+    def nav2_send_goal(self, x, y, z=0.0, yaw=None) -> bool:  # 해당 위치로 goal을 보내주는 함수 
         try:
             pose = PoseStamped()
             pose.pose.position.x = x
             pose.pose.position.y = y
             pose.pose.position.z = z
-
-            result = self.euler_to_quaternion(yaw)
-            pose.pose.orientation.x = result.pop(0)
-            pose.pose.orientation.y = result.pop(0)
-            pose.pose.orientation.z = result.pop(0)
-            pose.pose.orientation.w = result.pop(0)
+            if yaw != None:
+                result = self.euler_to_quaternion(yaw)
+                pose.pose.orientation.x = result.pop(0)
+                pose.pose.orientation.y = result.pop(0)
+                pose.pose.orientation.z = result.pop(0)
+                pose.pose.orientation.w = result.pop(0)
             pose.header.frame_id = config.map_name
             pose.header.stamp = self.get_clock().now().to_msg()
 
@@ -268,8 +281,14 @@ class RobotPlanner(Node):
 
             print('Navigating to goal: ' + str(pose.pose.position.x) + ' ' +
                   str(pose.pose.position.y) + '...')
-            send_goal_future = self.nav_to_pose_client.send_goal(goal_msg)
+            
+            self.nav_start_time = time.time()
+            self.nav_current_time = time.time()
+            self.go_to_pose_is_activate = True
 
+            send_goal_future = self.nav_to_pose_client.send_goal_async(goal_msg, self.nav2_action_feedback_callback)
+            send_goal_future.add_done_callback(self.goto_pose_done_callback)
+            self.wait_goto_pose()
             return True
 
         except Exception as e:
@@ -277,6 +296,64 @@ class RobotPlanner(Node):
             self.storagy_state = config.robot_state_wait_task
             time.sleep(config.wait_error)
             return False
+        
+
+    def wait_goto_pose(self): # goto_pose 액션이 실행중이라면 추가로 액션을 요청하지 않도록 대기하게 하는 함수
+        while self.go_to_pose_is_activate:
+            self.nav_current_time = time.time()
+            if self.old_distance_remaining != self.distance_remaining:
+                self.nav_start_time = time.time()
+
+            # if self.nav_current_time - self.nav_start_time >= config.nav2_wait_time:
+            #     self.back_up(self.backup_distance)
+            #     self.nav_start_time = time.time()
+    
+        
+    def goto_pose_done_callback(self, future): # goto_pose 액션 콜백
+        try:
+            result_future = future.result().get_result_async()
+            result_future.add_done_callback(self.goto_pose_result_callback)
+        except Exception as e:
+            print(f"[{inspect.currentframe().f_back.f_code.co_name}]: Error Msg : {e}")
+            return 
+        
+    def goto_pose_result_callback(self, future): # goto_pose 액션이 끝나면 상태값 변환해주는 콜백함수
+        try:
+            result = future.result().result
+            self.go_to_pose_is_activate = False
+        except Exception as e:
+            print(f"[{inspect.currentframe().f_back.f_code.co_name}]: Error Msg : {e}")
+            self.go_to_pose_is_activate = False
+            return 
+
+    def nav2_action_feedback_callback(self, msg): # goto_pose 액션 피드백 콜백
+        try:
+            self.distance_remaining = msg.feedback.distance_remaining
+            self.old_distance_remaining = self.distance_remaining
+        except Exception as e:
+            print(f"[{inspect.currentframe().f_back.f_code.co_name}]: Error Msg : {e}")
+            return 
+        
+        
+    def back_up(self, distance = 0): # 후진함수
+        try:
+            if distance == 0:
+                return
+            print(f"back_up {distance}")
+            twist_msg = Twist()
+            twist_msg.linear.x = config.back_up_speed  # 속도 설정
+            time_to_move = distance / abs(config.back_up_speed)
+            start_time = self.get_clock().now().seconds_nanoseconds()[0]
+
+            while (self.get_clock().now().seconds_nanoseconds()[0] - start_time) < time_to_move:
+                self.cmd_vel_pub.publish(twist_msg)
+                time.sleep(0.01)
+
+            twist_msg.linear.x = 0.0
+            self.cmd_vel_pub.publish(twist_msg)
+        except:
+            print(f"[{inspect.currentframe().f_back.f_code.co_name}]: unable input")
+            return
 
 
     def euler_to_quaternion(self, yaw=config.euler_default_val, 
@@ -327,10 +404,6 @@ class RobotPlanner(Node):
         pass
 
 
-    def patrol(self):  # 쓰래기 수거를 순찰을 계획에 추가해주는 함수
-        self.task_list.append(config.robot_state_patrol)
-
-
     def go_to_station_now(self):  # 대기장소로 이동하는 행동을 계획의 최우선으로 추가해주는 함수
         self.task_list.insert(0, config.base)
 
@@ -341,17 +414,24 @@ class RobotPlanner(Node):
         except:
             print("task_list is empty")
 
+    def append_task_tables_patrol(self):
+        for i in config.robot_state_goto_tables:
+            self.task_list.append(i)
+        self.task_list.append(config.base)
+
 
     def check_able_table_name(self):  # 현재 들어온 작업이 등록된 테이블 중에 있는지 확인하고 가능하면 출발시키는 함수
         try:
             for i, name in enumerate(config.robot_state_goto_tables):
                 if name == self.task_list[0]:
+                    self.back_up(distance=self.backup_distance)
+                    self.backup_distance = config.default_backup_distance
                     self.set_state()
                     self.nav2_send_goal(config.goal_dict[config.tables[i]][config.str_x],
                                         config.goal_dict[config.tables[i]][config.str_y])
+                    self.location_name = config.tables[i]
                     time.sleep(config.wait_time)  # 5초 대기 후 대기모드로 전환
                     self.storagy_state = config.robot_state_wait_task
-                    self.location_name = config.tables[i]
                     break
         except Exception as e:
             print(f"[{inspect.currentframe().f_back.f_code.co_name}]: Error Msg : {e}")
@@ -370,32 +450,42 @@ class RobotPlanner(Node):
         current_time = start_time
         while self.run_deamon:
             try:
-                if current_time - start_time >= 10 and self.location_name != config.base:  # 10초간 어떤 작업도 수행하지 않으면 복귀
-                    self.go_to_station_now()
+                if current_time - start_time >= config.patrol_time:  # 지정된 시간동안 어떤 작업도 수행하지 않으면 순찰
+                    # self.go_to_station_now()
+                    self.append_task_tables_patrol()
+                    self.storagy_state = config.base
                     start_time = time.time()
                     continue
 
-                if self.storagy_state != config.robot_state_wait_task:  # 대기상태가 아니면 명령수행을 하지않음
+                if not (self.storagy_state == config.robot_state_wait_task or self.storagy_state == config.base):  # 대기상태가 아니면 명령수행을 하지않음
                     print(f"state: {self.storagy_state}")
                     start_time = time.time()
                     time.sleep(config.wait_error)
                     continue
 
-                if self.task_list == []:  # 테스크 리스트 비어있으면 대기
-                    if self.location_name != config.base:
-                        current_time = time.time()
-                        print(f"waiting new task ... \nwait_time: {round(current_time - start_time, 2)}sec")
-                    else:
-                        print("waiting base")
+                if self.task_list == [] and self.storagy_state == config.robot_state_wait_task:  # 테스크 리스트 비어있고 로봇 상태가 대기모드이면 카운트
+                    current_time = time.time()
+                    print(f"waiting new task ... \nwait_time: {round(current_time - start_time, 2)}sec")
+                    # if self.location_name != config.base:
+                    #     current_time = time.time()
+                    #     print(f"waiting new task ... \nwait_time: {round(current_time - start_time, 2)}sec")
+                    # else:
+                    #     print("waiting base")
                     time.sleep(config.wait_error)
                     continue
 
                 if self.task_list[0] == config.robot_state_goto_icecream_robot:  # 테스크별 실행
+                    self.back_up(distance=self.backup_distance)
                     self.set_state()
                     self.nav2_send_goal(config.goal_dict[config.before_icecream_robot][config.str_x],
-                                        config.goal_dict[config.before_icecream_robot][config.str_y])
+                                        config.goal_dict[config.before_icecream_robot][config.str_y], yaw=math.pi/2)
                     self.nav2_send_goal(config.goal_dict[config.icecream_robot_name][config.str_x],
-                                        config.goal_dict[config.icecream_robot_name][config.str_y])
+                                        config.goal_dict[config.icecream_robot_name][config.str_y], yaw=math.pi/2)
+                    self.backup_distance = config.back_up_distance
+                    # ArUco 마커 팔로워 실행
+                    # script_path = os.path.join(os.path.dirname(__file__), 'aruco_follower.py')
+                    # subprocess.Popen(["python3", script_path])
+
                     self.location_name = config.icecream_robot_name
                     self.storagy_state = config.robot_state_wait_icecream_robot
                                         
@@ -404,6 +494,7 @@ class RobotPlanner(Node):
 
                 elif self.task_list[0] == config.base:
                     print("go to base")
+                    self.back_up(distance=self.backup_distance)
                     self.set_state()
                     self.nav2_send_goal(config.goal_dict[config.base][config.str_x],
                                         config.goal_dict[config.base][config.str_y])
