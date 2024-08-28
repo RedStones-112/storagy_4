@@ -6,7 +6,7 @@ class ControlNodeConfig:
     stack_msgs_num = 1
     icecream_robot_name = "aris"
     before_icecream_robot = "before_aris"
-    tables  = ["table_1", "table_2", "table_3"]
+    tables  = ["table_1", "table_2", "table_3", "table_4"]
     base = "base"
 
     # 기존 AMCL 파라미터
@@ -76,9 +76,10 @@ class ControlNodeConfig:
     str_z = "z"
     map_name = "map"
 
-    goal_dict = {tables[0]             : {"x" : 3.70,   "y" : -0.43, "z" : 0.0},
-                tables[1]              : {"x" : 2.70,   "y" : -0.43, "z" : 0.0},
-                tables[2]              : {"x" : 3.70,   "y" : -0.05, "z" : 0.0},
+    goal_dict = {tables[0]             : {"x" : 3.70,   "y" : -0.35, "z" : 0.0},
+                tables[1]              : {"x" : 2.70,   "y" : -0.35, "z" : 0.0},
+                tables[2]              : {"x" : 3.70,   "y" : 0.85,  "z" : 0.0},
+                tables[3]              : {"x" : 2.70,   "y" : 0.85,  "z" : 0.0},
                 icecream_robot_name    : {"x" : 0.71,   "y" : 1.4,   "z" : 0.0},
                 before_icecream_robot  : {"x" : 0.68,   "y" : 0.00,  "z" : 0.0},
                 base                   : {"x" : 0.0,    "y" : 0.0,   "z" : 0.0}
@@ -96,7 +97,7 @@ class ControlNodeConfig:
     robot_state_patrol      = "patrol"
     robot_state_wait_task   = "wait_task"
     wait_time = 5
-    patrol_time = 20
+    patrol_time = 10
     nav2_wait_time = 10
     wait_error = 1
     euler_default_val = 0

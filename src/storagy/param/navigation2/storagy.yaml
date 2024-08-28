@@ -115,7 +115,7 @@ controller_server:
       vx_samples: 20
       vy_samples: 5
       vtheta_samples: 20
-      sim_time: 3.4
+      sim_time: 1.0
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.2
@@ -177,8 +177,8 @@ controller_server:
     general_goal_checker:
       plugin: nav2_controller::SimpleGoalChecker
       stateful: true
-      xy_goal_tolerance: 0.03
-      yaw_goal_tolerance: 0.15
+      xy_goal_tolerance: 0.20
+      yaw_goal_tolerance: 0.30
     goal_checker_plugins:
     - general_goal_checker
     min_theta_velocity_threshold: 0.001
@@ -241,7 +241,7 @@ local_costmap:
       height: 3
       inflation_layer:
         cost_scaling_factor: 2.5
-        inflation_radius: 0.18
+        inflation_radius: 0.21
         plugin: nav2_costmap_2d::InflationLayer
       obstacle_layer:
         enabled: true

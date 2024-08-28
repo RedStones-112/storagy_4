@@ -15,6 +15,7 @@ from nav2_simple_commander.robot_navigator import TaskResult
 
 from nav2_msgs.action import FollowPath, FollowWaypoints, NavigateThroughPoses, NavigateToPose
 from std_srvs.srv import Empty
+from std_msgs.msg import String
 # from aris_package.srv import SetSeatNumber
 from team4_msgs.srv import PutOnIcecream
 from team4_msgs.msg import StoragyStatus
@@ -56,16 +57,17 @@ class RobotPlanner(Node):
         )
         # 스토리지의 상태를 뿌리는 펍
         self.state_pub = self.create_publisher(
-            StoragyStatus, config.StoragyStatus_name, config.stack_msgs_num
+            String, config.StoragyStatus_name, config.stack_msgs_num
         )
+
         
         self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", config.stack_msgs_num)
         
         self.create_timer(1, self.pub_state)
 
     def pub_state(self): # 상태 퍼블리쉬 하는 함수
-        msg = StoragyStatus()
-        msg.storagy_status = self.storagy_state
+        msg = String()
+        msg.data = self.storagy_state
         self.state_pub.publish(msg=msg)
     
     def init_pose_estimation(self):
@@ -477,6 +479,7 @@ class RobotPlanner(Node):
                 if self.task_list[0] == config.robot_state_goto_icecream_robot:  # 테스크별 실행
                     self.back_up(distance=self.backup_distance)
                     self.set_state()
+                    print(self.storagy_state)
                     self.nav2_send_goal(config.goal_dict[config.before_icecream_robot][config.str_x],
                                         config.goal_dict[config.before_icecream_robot][config.str_y], yaw=math.pi/2)
                     self.nav2_send_goal(config.goal_dict[config.icecream_robot_name][config.str_x],
@@ -504,6 +507,8 @@ class RobotPlanner(Node):
 
                 elif self.task_list[0] in config.robot_state_goto_tables:
                     self.check_able_table_name()
+                    if self.task_list == []:
+                        self.task_list.append(config.base)
                     start_time = time.time()
 
                 else:
