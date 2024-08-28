@@ -1,0 +1,1 @@
+string storagy_status

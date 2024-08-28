@@ -1,0 +1,3 @@
+int32 seat_number #request
+---
+bool is_okay  #response

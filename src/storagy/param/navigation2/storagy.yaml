@@ -104,7 +104,7 @@ controller_server:
       max_vel_y: 0.0
       max_vel_theta: 1.0
       min_speed_xy: 0.0
-      max_speed_xy: 0.6
+      max_speed_xy: 0.2
       min_speed_theta: 0.1
       acc_lim_x: 2.5
       acc_lim_y: 0.0
@@ -115,7 +115,7 @@ controller_server:
       vx_samples: 20
       vy_samples: 5
       vtheta_samples: 20
-      sim_time: 1.7
+      sim_time: 1.0
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.2
@@ -177,8 +177,8 @@ controller_server:
     general_goal_checker:
       plugin: nav2_controller::SimpleGoalChecker
       stateful: true
-      xy_goal_tolerance: 0.25
-      yaw_goal_tolerance: 0.25
+      xy_goal_tolerance: 0.20
+      yaw_goal_tolerance: 0.30
     goal_checker_plugins:
     - general_goal_checker
     min_theta_velocity_threshold: 0.001
@@ -202,7 +202,7 @@ global_costmap:
       global_frame: map
       inflation_layer:
         cost_scaling_factor: 2.5
-        inflation_radius: 1.5
+        inflation_radius: 0.18
         plugin: nav2_costmap_2d::InflationLayer
       obstacle_layer:
         enabled: true
@@ -241,7 +241,7 @@ local_costmap:
       height: 3
       inflation_layer:
         cost_scaling_factor: 2.5
-        inflation_radius: 1.5
+        inflation_radius: 0.21
         plugin: nav2_costmap_2d::InflationLayer
       obstacle_layer:
         enabled: true
